@@ -11,6 +11,7 @@ netbrief() {
   local interactive=0
   local do_ping=1
   local do_public_ip=1
+  local use_bat=0
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -26,6 +27,9 @@ netbrief() {
       --no-public-ip)
         do_public_ip=0
         ;;
+      -p|--page|--bat)
+        use_bat=1
+        ;;
       -h|--help)
         cat <<'EOF'
 netbrief - concise but rich network diagnostic overview
@@ -38,6 +42,7 @@ Options:
   -i, --interactive    Use an interactive Gum menu to choose which sections to display
       --no-ping        Skip connectivity tests via ping
       --no-public-ip   Skip querying external/public IP address
+  -p, --page, --bat    Pipe netbrief output through bat for scrolling
   -h, --help           Show this help
 
 Examples:
@@ -72,7 +77,7 @@ EOF
   fi
 
   # Soft dependencies (we just detect them)
-  local has_ip=0 has_ifconfig=0 has_ss=0 has_netstat=0 has_nmcli=0 has_resolvectl=0 has_dig=0 has_curl=0 has_iw=0
+  local has_ip=0 has_ifconfig=0 has_ss=0 has_netstat=0 has_nmcli=0 has_resolvectl=0 has_dig=0 has_curl=0 has_iw=0 has_bat=0
 
   command -v ip          >/dev/null 2>&1 && has_ip=1
   command -v ifconfig    >/dev/null 2>&1 && has_ifconfig=1
@@ -83,6 +88,7 @@ EOF
   command -v dig         >/dev/null 2>&1 && has_dig=1
   command -v curl        >/dev/null 2>&1 && has_curl=1
   command -v iw          >/dev/null 2>&1 && has_iw=1
+  command -v bat         >/dev/null 2>&1 && has_bat=1
 
   # -------------------------
   # Helper: styled headers
@@ -348,6 +354,21 @@ EOF
   fi
 
   # -------------------------
+  # Optional paging via bat
+  # -------------------------
+  local nb_tmpfile="" nb_restore_fd=""
+  if (( use_bat )); then
+    if (( has_bat )); then
+      nb_tmpfile="$(mktemp -t netbrief.XXXXXX)"
+      exec 3>&1
+      nb_restore_fd=3
+      exec >"$nb_tmpfile"
+    else
+      printf 'netbrief: --bat/--page requested but bat not found; continuing without pager.\n' >&2
+    fi
+  fi
+
+  # -------------------------
   # Run selected sections
   # -------------------------
   local section
@@ -388,5 +409,12 @@ EOF
 
   printf '\n'
   gum style --foreground "#a6e3a1" --bold "netbrief complete."
+
+  if [[ -n "$nb_tmpfile" ]]; then
+    exec 1>&"$nb_restore_fd"
+    exec "$nb_restore_fd>&-"
+    bat --paging=always --plain --theme=ansi "$nb_tmpfile"
+    rm -f "$nb_tmpfile"
+  fi
 }
 
